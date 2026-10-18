@@ -1,0 +1,257 @@
+// AquaFlow Water Tanker Services - ER Model
+// MIT 8103 Advanced Database Systems - Portfolio 1
+// Paste into https://dbdiagram.io to render the diagram
+
+Project AquaFlow {
+  database_type: 'PostgreSQL'
+  Note: 'On-demand water tanker platform serving Lagos Island, Nigeria'
+}
+
+// ---------- Enums ----------
+
+Enum customer_type {
+  household
+  business
+}
+
+Enum verification_status {
+  pending
+  verified
+  suspended
+}
+
+Enum tanker_status {
+  available
+  busy
+  offline
+  maintenance
+}
+
+Enum request_status {
+  pending
+  assigned
+  completed
+  cancelled
+}
+
+Enum offer_response {
+  pending
+  accepted
+  declined
+  expired
+}
+
+Enum trip_status {
+  assigned
+  en_route
+  arrived
+  completed
+  failed
+  cancelled
+}
+
+Enum payment_method {
+  card
+  bank_transfer
+}
+
+Enum payment_status {
+  pending
+  successful
+  failed
+  reversed
+}
+
+Enum payout_status {
+  pending
+  paid
+  failed
+}
+
+Enum staff_role {
+  operations
+  finance
+  admin
+}
+
+// ---------- Locations and pricing ----------
+
+Table service_area {
+  id bigint [pk, increment]
+  name varchar(100) [not null, unique]
+  is_active boolean [not null, default: true]
+}
+
+Table pricing_rule {
+  id bigint [pk, increment]
+  service_area_id bigint [not null, ref: > service_area.id]
+  price_per_1000_litres numeric(12,2) [not null, note: 'Must be > 0']
+  effective_from timestamptz [not null]
+  created_by bigint [not null, ref: > staff.id, note: 'Operations staff who set the price']
+
+  indexes {
+    (service_area_id, effective_from) [unique]
+  }
+}
+
+// ---------- Customers ----------
+
+Table customer {
+  id bigint [pk, increment]
+  full_name varchar(150) [not null]
+  phone varchar(20) [not null, unique]
+  email varchar(255) [unique]
+  customer_type customer_type [not null, default: 'household']
+  created_at timestamptz [not null, default: `now()`]
+}
+
+Table address {
+  id bigint [pk, increment]
+  customer_id bigint [not null, ref: > customer.id]
+  service_area_id bigint [not null, ref: > service_area.id]
+  label varchar(50) [note: 'e.g. Home, Office']
+  street_address varchar(255) [not null]
+  latitude numeric(9,6) [not null]
+  longitude numeric(9,6) [not null]
+  tank_capacity_litres integer [note: 'Must be > 0 when provided']
+  contact_name varchar(150) [not null]
+  contact_phone varchar(20) [not null]
+  access_notes text
+}
+
+// ---------- Vendors and fleet ----------
+
+Table vendor {
+  id bigint [pk, increment]
+  business_name varchar(150) [not null]
+  owner_name varchar(150) [not null]
+  phone varchar(20) [not null, unique]
+  bank_name varchar(100) [not null]
+  account_number varchar(20) [not null]
+  verification_status verification_status [not null, default: 'pending']
+  verified_by bigint [ref: > staff.id, note: 'NULL until verified by operations staff']
+  created_at timestamptz [not null, default: `now()`]
+}
+
+Table driver {
+  id bigint [pk, increment]
+  vendor_id bigint [not null, ref: > vendor.id]
+  full_name varchar(150) [not null]
+  phone varchar(20) [not null, unique]
+  licence_number varchar(50) [not null, unique]
+  is_active boolean [not null, default: true]
+}
+
+Table tanker {
+  id bigint [pk, increment]
+  vendor_id bigint [not null, ref: > vendor.id]
+  plate_number varchar(20) [not null, unique]
+  capacity_litres integer [not null, note: 'Must be > 0']
+  status tanker_status [not null, default: 'offline']
+}
+
+// ---------- Requests, offers and trips ----------
+
+Table delivery_request {
+  id bigint [pk, increment]
+  customer_id bigint [not null, ref: > customer.id]
+  address_id bigint [not null, ref: > address.id]
+  volume_litres integer [not null, note: 'Must be > 0']
+  scheduled_for timestamptz [note: 'NULL means immediate delivery']
+  quoted_price numeric(12,2) [not null, note: 'Price snapshot at request time']
+  status request_status [not null, default: 'pending']
+  created_at timestamptz [not null, default: `now()`]
+}
+
+Table job_offer {
+  id bigint [pk, increment]
+  request_id bigint [not null, ref: > delivery_request.id]
+  tanker_id bigint [not null, ref: > tanker.id]
+  offered_at timestamptz [not null, default: `now()`]
+  responded_at timestamptz
+  response offer_response [not null, default: 'pending']
+
+  indexes {
+    (request_id, tanker_id) [unique, note: 'A tanker is offered a request at most once']
+  }
+}
+
+Table trip {
+  id bigint [pk, increment]
+  request_id bigint [not null, ref: > delivery_request.id]
+  offer_id bigint [not null, unique, ref: - job_offer.id]
+  tanker_id bigint [not null, ref: > tanker.id]
+  driver_id bigint [not null, ref: > driver.id]
+  status trip_status [not null, default: 'assigned']
+  volume_delivered_litres integer [note: 'Set on completion']
+  failure_reason text [note: 'Required when status = failed']
+  assigned_at timestamptz [not null, default: `now()`]
+  completed_at timestamptz
+
+  Note: 'Partial unique index (added in SQL, not expressible in DBML): UNIQUE (request_id) WHERE status NOT IN (failed, cancelled). Allows many failed trips per request but only one active or completed trip.'
+}
+
+Table trip_status_history {
+  id bigint [pk, increment]
+  trip_id bigint [not null, ref: > trip.id]
+  status trip_status [not null]
+  changed_at timestamptz [not null, default: `now()`]
+}
+
+// ---------- Money ----------
+
+Table payment {
+  id bigint [pk, increment]
+  request_id bigint [not null, unique, ref: - delivery_request.id]
+  amount numeric(12,2) [not null, note: 'Must be > 0']
+  method payment_method [not null]
+  gateway_reference varchar(100) [not null, unique]
+  status payment_status [not null, default: 'pending']
+  paid_at timestamptz
+}
+
+Table refund {
+  id bigint [pk, increment]
+  payment_id bigint [not null, ref: > payment.id]
+  amount numeric(12,2) [not null, note: 'Must be > 0']
+  reason text [not null]
+  approved_by bigint [not null, ref: > staff.id, note: 'Finance staff who approved the refund']
+  refunded_at timestamptz [not null, default: `now()`]
+}
+
+Table payout {
+  id bigint [pk, increment]
+  vendor_id bigint [not null, ref: > vendor.id]
+  total_amount numeric(12,2) [not null]
+  status payout_status [not null, default: 'pending']
+  processed_by bigint [ref: > staff.id, note: 'Finance staff who released the payout; NULL while pending']
+  paid_at timestamptz
+}
+
+Table vendor_earning {
+  id bigint [pk, increment]
+  trip_id bigint [not null, unique, ref: - trip.id, note: 'Only completed trips earn']
+  vendor_id bigint [not null, ref: > vendor.id]
+  gross_amount numeric(12,2) [not null]
+  commission_amount numeric(12,2) [not null]
+  net_amount numeric(12,2) [not null, note: 'gross_amount - commission_amount']
+  payout_id bigint [ref: > payout.id, note: 'NULL until included in a payout']
+}
+
+Table rating {
+  id bigint [pk, increment]
+  trip_id bigint [not null, unique, ref: - trip.id]
+  score smallint [not null, note: '1 to 5']
+  comment text
+  created_at timestamptz [not null, default: `now()`]
+}
+
+// ---------- Staff ----------
+
+Table staff {
+  id bigint [pk, increment]
+  full_name varchar(150) [not null]
+  email varchar(255) [not null, unique]
+  role staff_role [not null]
+  is_active boolean [not null, default: true]
+}
