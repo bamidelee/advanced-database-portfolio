@@ -1,0 +1,85 @@
+
+================ CONSTRAINT TESTS ================
+
+TEST 1: Request cannot use another customer's address
+Expected: ERROR - violates fk_request_address_belongs_to_customer
+psql:/portfolio/portfolio-1-database-design/constraint-tests.sql:76: ERROR:  insert or update on table "delivery_request" violates foreign key constraint "fk_request_address_belongs_to_customer"
+DETAIL:  Key (address_id, customer_id)=(2, 1) is not present in table "address".
+
+TEST 2: Only one live trip per request
+Expected: ERROR - violates one_live_trip_per_request
+psql:/portfolio/portfolio-1-database-design/constraint-tests.sql:83: ERROR:  duplicate key value violates unique constraint "one_live_trip_per_request"
+DETAIL:  Key (request_id)=(1) already exists.
+
+TEST 3: A failed trip must have a reason
+Expected: ERROR - violates chk_trip_failure_reason
+psql:/portfolio/portfolio-1-database-design/constraint-tests.sql:89: ERROR:  new row for relation "trip" violates check constraint "chk_trip_failure_reason"
+DETAIL:  Failing row contains (1, 1, 1, 1, 1, failed, null, null, 2026-10-18 07:59:08.848629+00, null).
+
+TEST 4: After a trip fails, the request can be retried by another tanker
+Expected: SUCCESS - first trip failed, second trip inserted
+ id | request_id | tanker_id |  status  |               failure_reason               
+----+------------+-----------+----------+--------------------------------------------
+  1 |          1 |         1 | failed   | Tanker broke down on Third Mainland Bridge
+  2 |          1 |         2 | assigned | 
+
+
+TEST 5: A completed trip must record completion time and volume
+Expected: ERROR - violates chk_trip_completion_details
+psql:/portfolio/portfolio-1-database-design/constraint-tests.sql:104: ERROR:  new row for relation "trip" violates check constraint "chk_trip_completion_details"
+DETAIL:  Failing row contains (2, 1, 2, 2, 1, completed, null, null, 2026-10-18 07:59:08.848629+00, null).
+
+TEST 6: Once a trip is completed, no further trip can be added
+Expected: ERROR - violates one_live_trip_per_request
+psql:/portfolio/portfolio-1-database-design/constraint-tests.sql:123: ERROR:  duplicate key value violates unique constraint "one_live_trip_per_request"
+DETAIL:  Key (request_id)=(1) already exists.
+
+TEST 7: Net earnings are computed by the database
+Expected: SUCCESS - net_amount = 25000.00 - 2500.00 = 22500.00
+ trip_id | gross_amount | commission_amount | net_amount 
+---------+--------------+-------------------+------------
+       2 |     25000.00 |           2500.00 |   22500.00
+
+
+TEST 8: Net earnings cannot be written directly
+Expected: ERROR - column "net_amount" can only be updated to DEFAULT
+psql:/portfolio/portfolio-1-database-design/constraint-tests.sql:137: ERROR:  column "net_amount" can only be updated to DEFAULT
+DETAIL:  Column "net_amount" is a generated column.
+
+TEST 9: Commission cannot exceed the gross amount
+Expected: ERROR - violates chk_earning_amounts
+psql:/portfolio/portfolio-1-database-design/constraint-tests.sql:143: ERROR:  new row for relation "vendor_earning" violates check constraint "chk_earning_amounts"
+DETAIL:  Failing row contains (1, 2, 1, 25000.00, 30000.00, -5000.00, null).
+
+TEST 10: A trip can only earn once
+Expected: ERROR - duplicate key violates vendor_earning_trip_id_key
+psql:/portfolio/portfolio-1-database-design/constraint-tests.sql:150: ERROR:  duplicate key value violates unique constraint "vendor_earning_trip_id_key"
+DETAIL:  Key (trip_id)=(2) already exists.
+
+TEST 11: Rating must be between 1 and 5
+Expected: ERROR - violates chk_rating_score_range
+psql:/portfolio/portfolio-1-database-design/constraint-tests.sql:167: ERROR:  new row for relation "rating" violates check constraint "chk_rating_score_range"
+DETAIL:  Failing row contains (1, 2, 7, null, 2026-10-18 07:59:08.848629+00).
+
+TEST 12: Volumes and prices must be positive
+Expected: ERROR - violates chk_request_volume_positive
+psql:/portfolio/portfolio-1-database-design/constraint-tests.sql:174: ERROR:  new row for relation "delivery_request" violates check constraint "chk_request_volume_positive"
+DETAIL:  Failing row contains (3, 2, 2, -500, null, 25000.00, pending, 2026-10-18 07:59:08.848629+00).
+
+TEST 13: A refund must be approved by a staff member
+Expected: ERROR - null value in column "approved_by"
+psql:/portfolio/portfolio-1-database-design/constraint-tests.sql:183: ERROR:  null value in column "approved_by" of relation "refund" violates not-null constraint
+DETAIL:  Failing row contains (1, 1, 5000.00, Partial delivery, null, 2026-10-18 07:59:08.848629+00).
+
+TEST 14: A vendor cannot be marked verified without a verifying staff member
+Expected: ERROR - violates chk_vendor_verified_by
+psql:/portfolio/portfolio-1-database-design/constraint-tests.sql:189: ERROR:  new row for relation "vendor" violates check constraint "chk_vendor_verified_by"
+DETAIL:  Failing row contains (1, Island Tankers, Musa Bello, 08050000001, Access Bank, 0000000001, verified, null, 2026-10-18 07:59:08.848629+00).
+
+TEST 15: Duplicate tanker plate numbers are rejected
+Expected: ERROR - duplicate key violates tanker_plate_number_key
+psql:/portfolio/portfolio-1-database-design/constraint-tests.sql:196: ERROR:  duplicate key value violates unique constraint "tanker_plate_number_key"
+DETAIL:  Key (plate_number)=(LAG-101-AA) already exists.
+
+================ END OF TESTS ================
+Rolling back all test data...

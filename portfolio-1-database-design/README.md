@@ -114,3 +114,8 @@ One business rule cannot be expressed with standard foreign keys: **a trip's dri
 ## How This Was Produced
 
 The entities, relationships, and business rules were defined from the case study requirements. The ER model was written in DBML and rendered with dbdiagram.io. The normalisation review was carried out against the initial model, and the resulting fixes were applied to the DBML before the diagram was exported.
+
+
+## Testing
+
+The schema was run on PostgreSQL 16 in Docker (see `docker-compose.yml` in the repository root). `constraint-tests.sql` verifies that the business rules are enforced by the database itself rather than relying on application code. It contains 15 tests, each stating its expected outcome, covering the composite foreign key, the partial unique index on trips, state-dependent CHECK constraints, the generated `net_amount` column, and unique natural identifiers. All tests run inside a transaction that is rolled back, so the script leaves the database unchanged and can be rerun. Output screenshots are in `screenshots/`.
