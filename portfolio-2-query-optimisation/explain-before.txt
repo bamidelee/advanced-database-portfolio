@@ -1,0 +1,345 @@
+Pager usage is off.
+Timing is off.
+
+==================== Q1: Customer request history ====================
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=6162.17..6162.63 rows=4 width=55) (actual time=10.407..13.115 rows=10 loops=1)
+   Buffers: shared hit=2962
+   ->  Gather Merge  (cost=6162.17..6162.63 rows=4 width=55) (actual time=10.406..13.112 rows=10 loops=1)
+         Workers Planned: 1
+         Workers Launched: 1
+         Buffers: shared hit=2962
+         ->  Sort  (cost=5162.16..5162.17 rows=4 width=55) (actual time=9.174..9.175 rows=5 loops=2)
+               Sort Key: r.created_at DESC
+               Sort Method: quicksort  Memory: 25kB
+               Buffers: shared hit=2962
+               Worker 0:  Sort Method: quicksort  Memory: 25kB
+               ->  Nested Loop  (cost=0.29..5162.12 rows=4 width=55) (actual time=1.595..9.150 rows=5 loops=2)
+                     Buffers: shared hit=2954
+                     ->  Parallel Seq Scan on delivery_request r  (cost=0.00..5128.88 rows=4 width=38) (actual time=1.580..9.120 rows=5 loops=2)
+                           Filter: (customer_id = 7004)
+                           Rows Removed by Filter: 149995
+                           Buffers: shared hit=2923
+                     ->  Index Scan using uq_address_id_customer on address a  (cost=0.29..8.31 rows=1 width=33) (actual time=0.004..0.004 rows=1 loops=10)
+                           Index Cond: (id = r.address_id)
+                           Buffers: shared hit=31
+ Planning:
+   Buffers: shared hit=6
+ Planning Time: 0.180 ms
+ Execution Time: 13.133 ms
+(24 rows)
+
+
+==================== Q2: Delivery tracking timeline ====================
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=20764.69..20764.70 rows=4 width=24) (actual time=61.448..64.206 rows=7 loops=1)
+   Sort Key: h.changed_at
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=3942 read=8368
+   ->  Gather  (cost=6190.71..20764.65 rows=4 width=24) (actual time=42.045..64.188 rows=7 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=3942 read=8368
+         ->  Parallel Hash Join  (cost=5190.71..19764.25 rows=2 width=24) (actual time=46.894..59.755 rows=2 loops=3)
+               Hash Cond: (h.trip_id = t.id)
+               Buffers: shared hit=3942 read=8368
+               ->  Parallel Seq Scan on trip_status_history h  (cost=0.00..13309.88 rows=481388 width=20) (actual time=0.024..24.936 rows=385110 loops=3)
+                     Buffers: shared hit=128 read=8368
+               ->  Parallel Hash  (cost=5190.70..5190.70 rows=1 width=12) (actual time=6.859..6.860 rows=1 loops=3)
+                     Buckets: 1024  Batches: 1  Memory Usage: 40kB
+                     Buffers: shared hit=3660
+                     ->  Parallel Seq Scan on trip t  (cost=0.00..5190.70 rows=1 width=12) (actual time=6.798..6.799 rows=1 loops=3)
+                           Filter: (request_id = 299963)
+                           Rows Removed by Filter: 97964
+                           Buffers: shared hit=3660
+ Planning:
+   Buffers: shared hit=8
+ Planning Time: 0.139 ms
+ Execution Time: 64.227 ms
+(24 rows)
+
+
+==================== Q3: Live operations dashboard ====================
+                                                                                      QUERY PLAN                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Gather Merge  (cost=8049.43..8099.60 rows=430 width=85) (actual time=16.442..20.242 rows=513 loops=1)
+   Workers Planned: 2
+   Workers Launched: 2
+   Buffers: shared hit=7448
+   ->  Sort  (cost=7049.40..7049.94 rows=215 width=85) (actual time=14.292..14.307 rows=171 loops=3)
+         Sort Key: t.assigned_at
+         Sort Method: quicksort  Memory: 48kB
+         Buffers: shared hit=7448
+         Worker 0:  Sort Method: quicksort  Memory: 43kB
+         Worker 1:  Sort Method: quicksort  Memory: 42kB
+         ->  Hash Join  (cost=78.27..7041.07 rows=215 width=85) (actual time=0.844..14.176 rows=171 loops=3)
+               Hash Cond: (a.service_area_id = sa.id)
+               Buffers: shared hit=7432
+               ->  Hash Join  (cost=77.14..7038.97 rows=215 width=84) (actual time=0.762..14.048 rows=171 loops=3)
+                     Hash Cond: (t.driver_id = d.id)
+                     Buffers: shared hit=7333
+                     ->  Hash Join  (cost=42.52..7003.80 rows=215 width=66) (actual time=0.452..13.658 rows=171 loops=3)
+                           Hash Cond: (t.tanker_id = tk.id)
+                           Buffers: shared hit=7297
+                           ->  Nested Loop  (cost=0.71..6961.42 rows=215 width=62) (actual time=0.099..13.231 rows=171 loops=3)
+                                 Buffers: shared hit=7255
+                                 ->  Nested Loop  (cost=0.42..6890.46 rows=216 width=44) (actual time=0.081..12.518 rows=171 loops=3)
+                                       Buffers: shared hit=5714
+                                       ->  Parallel Seq Scan on trip t  (cost=0.00..5343.77 rows=216 width=44) (actual time=0.058..11.469 rows=171 loops=3)
+                                             Filter: (status = ANY ('{assigned,en_route,arrived}'::trip_status[]))
+                                             Rows Removed by Filter: 97794
+                                             Buffers: shared hit=3660
+                                       ->  Index Scan using delivery_request_pkey on delivery_request r  (cost=0.42..7.16 rows=1 width=16) (actual time=0.006..0.006 rows=1 loops=513)
+                                             Index Cond: (id = t.request_id)
+                                             Buffers: shared hit=2054
+                                 ->  Index Scan using address_pkey on address a  (cost=0.29..0.33 rows=1 width=34) (actual time=0.004..0.004 rows=1 loops=513)
+                                       Index Cond: (id = r.address_id)
+                                       Buffers: shared hit=1541
+                           ->  Hash  (cost=26.36..26.36 rows=1236 width=20) (actual time=0.341..0.341 rows=1236 loops=3)
+                                 Buckets: 2048  Batches: 1  Memory Usage: 84kB
+                                 Buffers: shared hit=42
+                                 ->  Seq Scan on tanker tk  (cost=0.00..26.36 rows=1236 width=20) (actual time=0.009..0.134 rows=1236 loops=3)
+                                       Buffers: shared hit=42
+                     ->  Hash  (cost=22.05..22.05 rows=1005 width=34) (actual time=0.301..0.301 rows=1005 loops=3)
+                           Buckets: 1024  Batches: 1  Memory Usage: 78kB
+                           Buffers: shared hit=36
+                           ->  Seq Scan on driver d  (cost=0.00..22.05 rows=1005 width=34) (actual time=0.008..0.122 rows=1005 loops=3)
+                                 Buffers: shared hit=36
+               ->  Hash  (cost=1.06..1.06 rows=6 width=17) (actual time=0.019..0.019 rows=6 loops=3)
+                     Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                     Buffers: shared hit=3
+                     ->  Seq Scan on service_area sa  (cost=0.00..1.06 rows=6 width=17) (actual time=0.013..0.014 rows=6 loops=3)
+                           Buffers: shared hit=3
+ Planning:
+   Buffers: shared hit=30
+ Planning Time: 0.619 ms
+ Execution Time: 20.303 ms
+(52 rows)
+
+
+==================== Q4: Tanker matching ====================
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=65.63..65.66 rows=10 width=45) (actual time=0.349..0.351 rows=10 loops=1)
+   Buffers: shared hit=29
+   InitPlan 1 (returns $0)
+     ->  Index Scan using delivery_request_pkey on delivery_request  (cost=0.42..8.44 rows=1 width=4) (actual time=0.008..0.009 rows=1 loops=1)
+           Index Cond: (id = 299963)
+           Buffers: shared hit=4
+   ->  Sort  (cost=57.19..57.45 rows=101 width=45) (actual time=0.348..0.350 rows=10 loops=1)
+         Sort Key: tk.capacity_litres
+         Sort Method: top-N heapsort  Memory: 26kB
+         Buffers: shared hit=29
+         ->  Hash Anti Join  (cost=20.90..55.01 rows=101 width=45) (actual time=0.117..0.300 rows=306 loops=1)
+               Hash Cond: (tk.id = jo.tanker_id)
+               Buffers: shared hit=29
+               ->  Hash Join  (cost=16.41..49.25 rows=101 width=45) (actual time=0.109..0.263 rows=307 loops=1)
+                     Hash Cond: (tk.vendor_id = v.id)
+                     Buffers: shared hit=25
+                     ->  Seq Scan on tanker tk  (cost=0.00..32.54 rows=114 width=32) (actual time=0.013..0.119 rows=341 loops=1)
+                           Filter: ((capacity_litres >= $0) AND (status = 'available'::tanker_status))
+                           Rows Removed by Filter: 895
+                           Buffers: shared hit=18
+                     ->  Hash  (cost=12.00..12.00 rows=353 width=29) (actual time=0.093..0.093 rows=353 loops=1)
+                           Buckets: 1024  Batches: 1  Memory Usage: 31kB
+                           Buffers: shared hit=7
+                           ->  Seq Scan on vendor v  (cost=0.00..12.00 rows=353 width=29) (actual time=0.003..0.050 rows=353 loops=1)
+                                 Filter: (verification_status = 'verified'::verification_status)
+                                 Rows Removed by Filter: 47
+                                 Buffers: shared hit=7
+               ->  Hash  (cost=4.46..4.46 rows=2 width=8) (actual time=0.005..0.005 rows=3 loops=1)
+                     Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                     Buffers: shared hit=4
+                     ->  Index Only Scan using uq_job_offer_request_tanker on job_offer jo  (cost=0.42..4.46 rows=2 width=8) (actual time=0.004..0.004 rows=3 loops=1)
+                           Index Cond: (request_id = 299963)
+                           Heap Fetches: 0
+                           Buffers: shared hit=4
+ Planning:
+   Buffers: shared hit=10
+ Planning Time: 0.208 ms
+ Execution Time: 0.370 ms
+(38 rows)
+
+
+==================== Q5: Vendor monthly statement ====================
+                                                                                QUERY PLAN                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize GroupAggregate  (cost=10413.68..10439.85 rows=177 width=108) (actual time=11.879..15.662 rows=30 loops=1)
+   Group Key: ((t.completed_at)::date)
+   Buffers: shared hit=9068 read=840 written=96
+   ->  Gather Merge  (cost=10413.68..10433.35 rows=148 width=108) (actual time=11.864..15.566 rows=59 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=9068 read=840 written=96
+         ->  Partial GroupAggregate  (cost=9413.65..9416.24 rows=74 width=108) (actual time=9.945..9.992 rows=20 loops=3)
+               Group Key: ((t.completed_at)::date)
+               Buffers: shared hit=9068 read=840 written=96
+               ->  Sort  (cost=9413.65..9413.84 rows=74 width=21) (actual time=9.933..9.939 rows=69 loops=3)
+                     Sort Key: ((t.completed_at)::date)
+                     Sort Method: quicksort  Memory: 25kB
+                     Buffers: shared hit=9068 read=840 written=96
+                     Worker 0:  Sort Method: quicksort  Memory: 30kB
+                     Worker 1:  Sort Method: quicksort  Memory: 29kB
+                     ->  Nested Loop  (cost=0.42..9411.36 rows=74 width=21) (actual time=9.070..9.898 rows=69 loops=3)
+                           Buffers: shared hit=9052 read=840 written=96
+                           ->  Parallel Seq Scan on vendor_earning ve  (cost=0.00..6338.04 rows=495 width=25) (actual time=0.148..7.826 rows=415 loops=3)
+                                 Filter: (vendor_id = 345)
+                                 Rows Removed by Filter: 90980
+                                 Buffers: shared hit=4070 read=840 written=96
+                           ->  Index Scan using trip_pkey on trip t  (cost=0.42..6.21 rows=1 width=16) (actual time=0.005..0.005 rows=0 loops=1245)
+                                 Index Cond: (id = ve.trip_id)
+                                 Filter: ((completed_at < date_trunc('month'::text, now())) AND (completed_at >= (date_trunc('month'::text, now()) - '1 mon'::interval)))
+                                 Rows Removed by Filter: 1
+                                 Buffers: shared hit=4982
+ Planning:
+   Buffers: shared hit=16
+ Planning Time: 0.212 ms
+ Execution Time: 15.699 ms
+(31 rows)
+
+
+==================== Q6: Weekly area report (original) ====================
+                                                                                         QUERY PLAN                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=14767.47..14767.49 rows=6 width=57) (actual time=76.342..80.569 rows=6 loops=1)
+   Sort Key: (count(*)) DESC
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=7810
+   ->  Finalize GroupAggregate  (cost=14766.54..14767.39 rows=6 width=57) (actual time=76.330..80.566 rows=6 loops=1)
+         Group Key: sa.name
+         Buffers: shared hit=7810
+         ->  Gather Merge  (cost=14766.54..14767.23 rows=6 width=57) (actual time=76.323..80.552 rows=12 loops=1)
+               Workers Planned: 1
+               Workers Launched: 1
+               Buffers: shared hit=7810
+               ->  Sort  (cost=13766.53..13766.54 rows=6 width=57) (actual time=74.896..74.900 rows=6 loops=2)
+                     Sort Key: sa.name
+                     Sort Method: quicksort  Memory: 25kB
+                     Buffers: shared hit=7810
+                     Worker 0:  Sort Method: quicksort  Memory: 25kB
+                     ->  Partial HashAggregate  (cost=13766.38..13766.45 rows=6 width=57) (actual time=74.875..74.880 rows=6 loops=2)
+                           Group Key: sa.name
+                           Batches: 1  Memory Usage: 24kB
+                           Buffers: shared hit=7802
+                           Worker 0:  Batches: 1  Memory Usage: 24kB
+                           ->  Hash Join  (cost=11702.75..13580.44 rows=9297 width=29) (actual time=61.606..71.366 rows=8036 loops=2)
+                                 Hash Cond: (a.service_area_id = sa.id)
+                                 Buffers: shared hit=7802
+                                 ->  Parallel Hash Join  (cost=11701.62..13537.65 rows=9297 width=28) (actual time=61.567..70.131 rows=8036 loops=2)
+                                       Hash Cond: (a.id = r.address_id)
+                                       Buffers: shared hit=7785
+                                       ->  Parallel Seq Scan on address a  (cost=0.00..1598.86 rows=39686 width=16) (actual time=0.009..2.398 rows=33734 loops=2)
+                                             Buffers: shared hit=1202
+                                       ->  Parallel Hash  (cost=11618.92..11618.92 rows=6616 width=28) (actual time=61.377..61.379 rows=8036 loops=2)
+                                             Buckets: 16384  Batches: 1  Memory Usage: 1120kB
+                                             Buffers: shared hit=6583
+                                             ->  Parallel Hash Right Join  (cost=6128.00..11618.92 rows=6616 width=28) (actual time=28.760..59.001 rows=8036 loops=2)
+                                                   Hash Cond: (t.request_id = r.id)
+                                                   Buffers: shared hit=6583
+                                                   ->  Parallel Seq Scan on trip t  (cost=0.00..5190.70 rows=114370 width=24) (actual time=0.005..15.492 rows=137092 loops=2)
+                                                         Filter: (status = 'completed'::trip_status)
+                                                         Rows Removed by Filter: 9855
+                                                         Buffers: shared hit=3660
+                                                   ->  Parallel Hash  (cost=6011.24..6011.24 rows=9341 width=20) (actual time=28.709..28.709 rows=8036 loops=2)
+                                                         Buckets: 16384  Batches: 1  Memory Usage: 1024kB
+                                                         Buffers: shared hit=2923
+                                                         ->  Parallel Seq Scan on delivery_request r  (cost=0.00..6011.24 rows=9341 width=20) (actual time=0.008..26.836 rows=8036 loops=2)
+                                                               Filter: (created_at >= (now() - '7 days'::interval))
+                                                               Rows Removed by Filter: 141964
+                                                               Buffers: shared hit=2923
+                                 ->  Hash  (cost=1.06..1.06 rows=6 width=17) (actual time=0.012..0.013 rows=6 loops=2)
+                                       Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                                       Buffers: shared hit=2
+                                       ->  Seq Scan on service_area sa  (cost=0.00..1.06 rows=6 width=17) (actual time=0.008..0.009 rows=6 loops=2)
+                                             Buffers: shared hit=2
+ Planning:
+   Buffers: shared hit=18
+ Planning Time: 0.336 ms
+ Execution Time: 80.619 ms
+(55 rows)
+
+
+==================== Q6b: Weekly area report (rewritten) ====================
+                                                                                      QUERY PLAN                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=15480.47..15480.49 rows=6 width=57) (actual time=71.761..75.826 rows=6 loops=1)
+   Sort Key: (count(*)) DESC
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=7810
+   ->  Finalize GroupAggregate  (cost=15479.54..15480.40 rows=6 width=57) (actual time=71.749..75.822 rows=6 loops=1)
+         Group Key: sa.name
+         Buffers: shared hit=7810
+         ->  Gather Merge  (cost=15479.54..15480.23 rows=6 width=57) (actual time=71.742..75.808 rows=12 loops=1)
+               Workers Planned: 1
+               Workers Launched: 1
+               Buffers: shared hit=7810
+               ->  Sort  (cost=14479.53..14479.55 rows=6 width=57) (actual time=70.230..70.233 rows=6 loops=2)
+                     Sort Key: sa.name
+                     Sort Method: quicksort  Memory: 25kB
+                     Buffers: shared hit=7810
+                     Worker 0:  Sort Method: quicksort  Memory: 25kB
+                     ->  Partial HashAggregate  (cost=14479.38..14479.45 rows=6 width=57) (actual time=70.209..70.213 rows=6 loops=2)
+                           Group Key: sa.name
+                           Batches: 1  Memory Usage: 24kB
+                           Buffers: shared hit=7802
+                           Worker 0:  Batches: 1  Memory Usage: 24kB
+                           ->  Parallel Hash Left Join  (cost=12313.47..14293.44 rows=9297 width=29) (actual time=56.437..67.039 rows=8036 loops=2)
+                                 Hash Cond: (r.id = t.request_id)
+                                 Buffers: shared hit=7802
+                                 ->  Hash Join  (cost=6129.13..8072.37 rows=9297 width=21) (actual time=28.811..37.619 rows=8036 loops=2)
+                                       Hash Cond: (a.service_area_id = sa.id)
+                                       Buffers: shared hit=4127
+                                       ->  Parallel Hash Join  (cost=6128.00..8029.59 rows=9297 width=20) (actual time=28.756..36.511 rows=8036 loops=2)
+                                             Hash Cond: (a.id = r.address_id)
+                                             Buffers: shared hit=4125
+                                             ->  Parallel Seq Scan on address a  (cost=0.00..1598.86 rows=39686 width=16) (actual time=0.009..2.147 rows=33734 loops=2)
+                                                   Buffers: shared hit=1202
+                                             ->  Parallel Hash  (cost=6011.24..6011.24 rows=9341 width=20) (actual time=28.501..28.501 rows=8036 loops=2)
+                                                   Buckets: 16384  Batches: 1  Memory Usage: 1056kB
+                                                   Buffers: shared hit=2923
+                                                   ->  Parallel Seq Scan on delivery_request r  (cost=0.00..6011.24 rows=9341 width=20) (actual time=0.012..26.629 rows=8036 loops=2)
+                                                         Filter: (created_at >= (now() - '7 days'::interval))
+                                                         Rows Removed by Filter: 141964
+                                                         Buffers: shared hit=2923
+                                       ->  Hash  (cost=1.06..1.06 rows=6 width=17) (actual time=0.030..0.030 rows=6 loops=2)
+                                             Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                                             Buffers: shared hit=2
+                                             ->  Seq Scan on service_area sa  (cost=0.00..1.06 rows=6 width=17) (actual time=0.023..0.024 rows=6 loops=2)
+                                                   Buffers: shared hit=2
+                                 ->  Parallel Hash  (cost=6109.12..6109.12 rows=6018 width=24) (actual time=27.477..27.478 rows=6984 loops=2)
+                                       Buckets: 16384  Batches: 1  Memory Usage: 928kB
+                                       Buffers: shared hit=3660
+                                       ->  Parallel Seq Scan on trip t  (cost=0.00..6109.12 rows=6018 width=24) (actual time=0.008..26.039 rows=6984 loops=2)
+                                             Filter: ((status = 'completed'::trip_status) AND (assigned_at >= (now() - '7 days'::interval)))
+                                             Rows Removed by Filter: 139962
+                                             Buffers: shared hit=3660
+ Planning:
+   Buffers: shared hit=18
+ Planning Time: 0.350 ms
+ Execution Time: 75.871 ms
+(55 rows)
+
+
+==================== Selectivity: 7 days vs 365 days ====================
+                                           QUERY PLAN                                            
+-------------------------------------------------------------------------------------------------
+ Finalize Aggregate  (cost=7034.70..7034.71 rows=1 width=8)
+   ->  Gather  (cost=7034.59..7034.70 rows=1 width=8)
+         Workers Planned: 1
+         ->  Partial Aggregate  (cost=6034.59..6034.60 rows=1 width=8)
+               ->  Parallel Seq Scan on delivery_request  (cost=0.00..6011.24 rows=9341 width=0)
+                     Filter: (created_at >= (now() - '7 days'::interval))
+(6 rows)
+
+                                            QUERY PLAN                                             
+---------------------------------------------------------------------------------------------------
+ Finalize Aggregate  (cost=7405.15..7405.16 rows=1 width=8)
+   ->  Gather  (cost=7405.04..7405.15 rows=1 width=8)
+         Workers Planned: 1
+         ->  Partial Aggregate  (cost=6405.04..6405.05 rows=1 width=8)
+               ->  Parallel Seq Scan on delivery_request  (cost=0.00..6011.24 rows=157522 width=0)
+                     Filter: (created_at >= (now() - '365 days'::interval))
+(6 rows)
+
