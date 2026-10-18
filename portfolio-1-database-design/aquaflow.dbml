@@ -1,6 +1,5 @@
 // AquaFlow Water Tanker Services - ER Model
 // MIT 8103 Advanced Database Systems - Portfolio 1
-// Paste into https://dbdiagram.io to render the diagram
 
 Project AquaFlow {
   database_type: 'PostgreSQL'
@@ -117,6 +116,10 @@ Table address {
   contact_name varchar(150) [not null]
   contact_phone varchar(20) [not null]
   access_notes text
+
+  indexes {
+    (id, customer_id) [unique, note: 'Target of composite FK from delivery_request']
+  }
 }
 
 // ---------- Vendors and fleet ----------
@@ -155,13 +158,15 @@ Table tanker {
 Table delivery_request {
   id bigint [pk, increment]
   customer_id bigint [not null, ref: > customer.id]
-  address_id bigint [not null, ref: > address.id]
+  address_id bigint [not null, note: 'Composite FK with customer_id: address must belong to this customer']
   volume_litres integer [not null, note: 'Must be > 0']
   scheduled_for timestamptz [note: 'NULL means immediate delivery']
   quoted_price numeric(12,2) [not null, note: 'Price snapshot at request time']
   status request_status [not null, default: 'pending']
   created_at timestamptz [not null, default: `now()`]
 }
+
+Ref request_address_belongs_to_customer: delivery_request.(address_id, customer_id) > address.(id, customer_id)
 
 Table job_offer {
   id bigint [pk, increment]
@@ -188,7 +193,7 @@ Table trip {
   assigned_at timestamptz [not null, default: `now()`]
   completed_at timestamptz
 
-  Note: 'Partial unique index (added in SQL, not expressible in DBML): UNIQUE (request_id) WHERE status NOT IN (failed, cancelled). Allows many failed trips per request but only one active or completed trip.'
+  Note: 'Partial unique index (added in SQL, not expressible in DBML): UNIQUE (request_id) WHERE status NOT IN (failed, cancelled). Allows many failed trips per request but only one active or completed trip. Business rule enforced in the assignment transaction: driver and tanker must belong to the same vendor.'
 }
 
 Table trip_status_history {
@@ -231,10 +236,10 @@ Table payout {
 Table vendor_earning {
   id bigint [pk, increment]
   trip_id bigint [not null, unique, ref: - trip.id, note: 'Only completed trips earn']
-  vendor_id bigint [not null, ref: > vendor.id]
+  vendor_id bigint [not null, ref: > vendor.id, note: 'Snapshot of tanker owner at trip time (deliberate exception to 3NF)']
   gross_amount numeric(12,2) [not null]
   commission_amount numeric(12,2) [not null]
-  net_amount numeric(12,2) [not null, note: 'gross_amount - commission_amount']
+  net_amount numeric(12,2) [note: 'GENERATED ALWAYS AS (gross_amount - commission_amount) STORED']
   payout_id bigint [ref: > payout.id, note: 'NULL until included in a payout']
 }
 
