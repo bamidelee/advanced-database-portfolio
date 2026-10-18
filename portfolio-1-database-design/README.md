@@ -8,7 +8,11 @@ This portfolio presents the relational design for **AquaFlow Water Tanker Servic
 |---|---|
 | `aquaflow.dbml` | ER model in DBML, rendered with [dbdiagram.io](https://dbdiagram.io) |
 | `aquaflow-er-diagram.png` | Exported ER diagram |
-| `schema.sql` | PostgreSQL implementation of the design *(to be added)* |
+| `schema.sql` | PostgreSQL implementation of the design |
+| `constraint-tests.sql` | 15 tests proving the business rules are enforced by the database |
+| `constraint-tests-output.txt` | Full output of the constraint tests |
+| `capture-evidence.sh` | Script that applies the schema and runs the tests with screenshot pauses |
+| `screenshots/` | Schema run, table and constraint summary, trip structure, and test results |
 
 ## ER Diagram
 
