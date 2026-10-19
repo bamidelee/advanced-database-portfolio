@@ -1,0 +1,24 @@
+======================================================================
+ 5a. Two staff take drivers off duty - REPEATABLE READ
+======================================================================
+Setup: vendor 401 with 2 active drivers ( 1006 and 1007 )
+
+          Staff 1   | 0.088s  BEGIN ISOLATION LEVEL REPEATABLE READ
+          Staff 1   | 0.089s  Counts active drivers for vendor 401: 2
+          Staff 1   | 0.089s  More than one, so it is safe to take driver 1006 off duty (holding for 2s)
+          Staff 1   | 2.102s  OK     UPDATE driver 1006 to inactive
+          Staff 1   | 2.103s  Finishing the shift change (holding for 2s)
+          Staff 1   | 4.114s  COMMIT
+          Staff 2   | 0.088s  Second staff member acts a moment later (holding for 1s)
+          Staff 2   | 1.095s  BEGIN ISOLATION LEVEL REPEATABLE READ
+          Staff 2   | 1.098s  Counts active drivers for vendor 401: 2
+          Staff 2   | 1.099s  More than one, so it is safe to take driver 1007 off duty (holding for 2s)
+          Staff 2   | 3.112s  OK     UPDATE driver 1007 to inactive
+          Staff 2   | 3.125s  COMMIT
+
+Result: active drivers left for the vendor (the rule requires at least one)
+ active_drivers |                 verdict                  
+----------------+------------------------------------------
+              0 | RULE BROKEN: vendor has no active driver
+
+

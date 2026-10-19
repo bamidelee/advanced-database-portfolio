@@ -61,7 +61,7 @@ scenario() {
   } | tee "$out"
 }
 
-$PSQL -f "$DIR/demo-helpers.sql" > /dev/null
+$PSQL -f "$DIR/demo-helpers.sql" > /dev/null 2>&1
 
 # Scenario 3a demonstrates double-booking, which is only possible before
 # the guard index from 3c exists. Remove it so a rerun replays the full

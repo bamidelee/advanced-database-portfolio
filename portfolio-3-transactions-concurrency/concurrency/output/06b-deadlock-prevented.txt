@@ -1,0 +1,25 @@
+======================================================================
+ 6b. The same updates, with both tankers locked up front in id order
+======================================================================
+Setup: tankers 26 and 27
+
+          Staff 1   | 0.133s  BEGIN
+          Staff 1   | 0.134s  OK     Lock both tankers in id order
+          Staff 1   | 0.135s  OK     UPDATE tanker 26
+          Staff 1   | 0.135s  Doing other work (holding for 1.5s)
+          Staff 1   | 1.644s  OK     UPDATE tanker 27
+          Staff 1   | 1.645s  COMMIT
+          Staff 2   | 0.132s  Staff 2 starts a moment later (holding for 0.5s)
+          Staff 2   | 0.636s  BEGIN
+          Staff 2   | 1.657s  OK     Lock both tankers in id order (after being blocked for 1.0s)
+          Staff 2   | 1.659s  OK     UPDATE tanker 27
+          Staff 2   | 1.660s  Doing other work (holding for 1.5s)
+          Staff 2   | 3.168s  OK     UPDATE tanker 26
+          Staff 2   | 3.170s  COMMIT
+
+Deadlocks detected in this database since statistics were last reset:
+ deadlocks 
+-----------
+         1
+
+

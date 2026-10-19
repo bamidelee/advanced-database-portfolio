@@ -1,0 +1,25 @@
+======================================================================
+ 5b. Two staff take drivers off duty - SERIALIZABLE
+======================================================================
+Setup: vendor 402 with 2 active drivers ( 1008 and 1009 )
+
+          Staff 1   | 0.255s  BEGIN ISOLATION LEVEL SERIALIZABLE
+          Staff 1   | 0.258s  Counts active drivers for vendor 402: 2
+          Staff 1   | 0.260s  More than one, so it is safe to take driver 1008 off duty (holding for 2s)
+          Staff 1   | 2.270s  OK     UPDATE driver 1008 to inactive
+          Staff 1   | 2.270s  Finishing the shift change (holding for 2s)
+          Staff 1   | 4.283s  COMMIT
+          Staff 1   | ERROR:  could not serialize access due to read/write dependencies among transactions
+          Staff 2   | 0.262s  Second staff member acts a moment later (holding for 1s)
+          Staff 2   | 1.268s  BEGIN ISOLATION LEVEL SERIALIZABLE
+          Staff 2   | 1.271s  Counts active drivers for vendor 402: 2
+          Staff 2   | 1.272s  More than one, so it is safe to take driver 1009 off duty (holding for 2s)
+          Staff 2   | 3.284s  OK     UPDATE driver 1009 to inactive
+          Staff 2   | 3.285s  COMMIT
+
+Result: active drivers left for the vendor (the rule requires at least one)
+ active_drivers |    verdict     
+----------------+----------------
+              1 | OK: rule holds
+
+

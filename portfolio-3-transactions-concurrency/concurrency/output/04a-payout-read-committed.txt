@@ -1,0 +1,27 @@
+======================================================================
+ 4a. Vendor payout during a delivery - READ COMMITTED
+======================================================================
+Setup: vendor 8 has 101 unpaid earnings totalling 2297520.00 ; trip 293909 has just arrived at the customer
+
+          Finance   | 0.098s  BEGIN ISOLATION LEVEL READ COMMITTED
+          Finance   | 0.099s  Reads unpaid earnings: 101 totalling 2297520.00
+          Finance   | 0.100s  Finance officer checks the statement (holding for 2s)
+          Finance   | 2.126s  Creates payout 8910 for 2297520.00
+          Finance   | 2.128s  Marks 102 earnings worth 2315520.00 as paid by payout 8910
+          Finance   | 2.131s  COMMIT
+          Driver    | 0.095s  Driver finishes pumping water (holding for 1s)
+          Driver    | 1.100s  BEGIN
+          Driver    | 1.115s  OK     complete_trip(293909) - new earning for vendor 8
+          Driver    | 1.115s  COMMIT
+
+Result: payout amount compared with the earnings it is recorded as covering
+ payout | amount_paid | earnings_marked_paid | value_marked_paid |                      verdict                      
+--------+-------------+----------------------+-------------------+---------------------------------------------------
+   8910 |  2297520.00 |                  102 |        2315520.00 | MISMATCH: 18000.00 marked paid but never paid out
+
+The new delivery's earning (it should wait for the next payout):
+ trip_id | net_amount | payout_id 
+---------+------------+-----------
+  293909 |   18000.00 | 8910
+
+

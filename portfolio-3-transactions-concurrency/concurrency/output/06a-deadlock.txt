@@ -1,0 +1,24 @@
+======================================================================
+ 6a. Two staff update the same two tankers in opposite order
+======================================================================
+Setup: tankers 26 and 27
+
+          Staff 1   | 0.113s  BEGIN
+          Staff 1   | 0.114s  OK     UPDATE tanker 26
+          Staff 1   | 0.114s  Doing other work (holding for 1.5s)
+          Staff 1   | 2.624s  FAILED UPDATE tanker 27 (after being blocked for 1.0s)
+          Staff 1   |            -> deadlock detected
+          Staff 1   | 2.625s  ROLLBACK
+          Staff 2   | 0.113s  Staff 2 starts a moment later (holding for 0.5s)
+          Staff 2   | 0.616s  BEGIN
+          Staff 2   | 0.618s  OK     UPDATE tanker 27
+          Staff 2   | 0.619s  Doing other work (holding for 1.5s)
+          Staff 2   | 2.627s  OK     UPDATE tanker 26 (after being blocked for 0.5s)
+          Staff 2   | 2.628s  COMMIT
+
+Deadlocks detected in this database since statistics were last reset:
+ deadlocks 
+-----------
+         1
+
+

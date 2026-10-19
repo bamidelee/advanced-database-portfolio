@@ -1,0 +1,27 @@
+======================================================================
+ 4b. Vendor payout during a delivery - REPEATABLE READ
+======================================================================
+Setup: vendor 10 has 60 unpaid earnings totalling 1257840.00 ; trip 293910 has just arrived at the customer
+
+          Finance   | 0.180s  BEGIN ISOLATION LEVEL REPEATABLE READ
+          Finance   | 0.182s  Reads unpaid earnings: 60 totalling 1257840.00
+          Finance   | 0.182s  Finance officer checks the statement (holding for 2s)
+          Finance   | 2.194s  Creates payout 8911 for 1257840.00
+          Finance   | 2.196s  Marks 60 earnings worth 1257840.00 as paid by payout 8911
+          Finance   | 2.198s  COMMIT
+          Driver    | 0.180s  Driver finishes pumping water (holding for 1s)
+          Driver    | 1.186s  BEGIN
+          Driver    | 1.206s  OK     complete_trip(293910) - new earning for vendor 10
+          Driver    | 1.207s  COMMIT
+
+Result: payout amount compared with the earnings it is recorded as covering
+ payout | amount_paid | earnings_marked_paid | value_marked_paid | verdict 
+--------+-------------+----------------------+-------------------+---------
+   8911 |  1257840.00 |                   60 |        1257840.00 | MATCH
+
+The new delivery's earning (it should wait for the next payout):
+ trip_id | net_amount |      payout_id       
+---------+------------+----------------------
+  293910 |   18000.00 | unpaid - next payout
+
+

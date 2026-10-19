@@ -29,11 +29,22 @@ LANGUAGE sql AS $$
 $$;
 
 -- A log line stamped with the real time of the event (clock_timestamp,
--- not now(), because now() is frozen at the start of a transaction)
+-- not now(), because now() is frozen at the start of a transaction).
+-- The start time is read from a session setting (demo.t0, set by
+-- session-header.sql) rather than from a table, so logging never reads
+-- table data. Under SERIALIZABLE, any table read can be the point where
+-- PostgreSQL raises a serialization failure, which would make the log
+-- line itself fail.
 CREATE OR REPLACE FUNCTION demo.log(p_msg text) RETURNS text
-LANGUAGE sql AS $$
-  SELECT to_char(extract(epoch FROM clock_timestamp() - (SELECT started_at FROM demo.clock)),
-                 'FM990.000') || 's  ' || p_msg;
+LANGUAGE plpgsql AS $$
+DECLARE
+  t0 numeric := nullif(current_setting('demo.t0', true), '')::numeric;
+BEGIN
+  IF t0 IS NULL THEN
+    SELECT extract(epoch FROM started_at) INTO t0 FROM demo.clock;
+  END IF;
+  RETURN to_char(extract(epoch FROM clock_timestamp()) - t0, 'FM990.000') || 's  ' || p_msg;
+END;
 $$;
 
 -- Logs a message, then sleeps. Used to hold a transaction open so the
