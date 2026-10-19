@@ -12,5 +12,23 @@ services:
       - pgdata:/var/lib/postgresql/data
       - ./:/portfolio
 
+  redis:
+    image: redis:7.2
+    container_name: aquaflow-redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - ./:/portfolio
+
+  mongo:
+    image: mongo:7.0
+    container_name: aquaflow-mongo
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongodata:/data/db
+      - ./:/portfolio
+
 volumes:
   pgdata:
+  mongodata:

@@ -1,0 +1,225 @@
+
+======================================================================
+ 1. Load live tanker state from PostgreSQL
+======================================================================
+PostgreSQL remains the system of record. Redis holds the fast-changing
+live state: positions, availability and heartbeats.
+
+> ZCARD geo:tankers
+938
+
+> ZCARD geo:tankers:available
+338
+
+> DBSIZE
+2176
+
+> MEMORY USAGE geo:tankers
+90035
+
+Customer address 2 is at latitude 6.433002, longitude 3.419713
+
+======================================================================
+ 2. The data model
+======================================================================
+Each tanker is a hash. Positions are in a geo set, which Redis stores as
+a sorted set scored by a 52-bit geohash, so nearby points have nearby
+scores and a radius search is a range scan.
+
+> HGETALL tanker:644
+plate
+LAG-02072TK
+vendor_id
+207
+capacity
+10000
+status
+available
+lat
+6.433356
+lng
+3.420651
+
+> TYPE geo:tankers
+zset
+
+> ZSCORE geo:tankers 644
+3382745498433146
+
+> GEOPOS geo:tankers 644
+3.4206506609916687
+6.43335676410949731
+
+> TTL tanker:644:alive
+3599
+
+
+======================================================================
+ 3. Nearest available tankers to the customer
+======================================================================
+GEOSEARCH returns the closest available tankers within 2 km, nearest first.
+
+> GEOSEARCH geo:tankers:available FROMLONLAT 3.419713 6.433002 BYRADIUS 2 km ASC WITHDIST COUNT 5
+644
+0.1109
+176
+0.2359
+260
+0.3121
+806
+0.3289
+902
+0.3329
+
+
+======================================================================
+ 4. Matching inside Redis with a Lua script
+======================================================================
+The customer needs 15,000 litres. match.lua searches by distance, then
+skips tankers whose heartbeat has expired or that are too small, all in
+one atomic server-side step.
+
+> redis-cli --eval match.lua geo:tankers:available , 3.419713 6.433002 3 15000 5
+tanker 806
+LAG-02591TK
+15000 litres
+0.3289 km
+tanker 902
+LAG-02891TK
+20000 litres
+0.3329 km
+tanker 656
+LAG-02112TK
+15000 litres
+0.3536 km
+tanker 560
+LAG-01791TK
+20000 litres
+0.4408 km
+tanker 62
+LAG-00221TK
+33000 litres
+0.4855 km
+
+Best match: tanker 806. Second match: tanker 902.
+
+======================================================================
+ 5. First accept wins
+======================================================================
+Two vendors accept request 9001 at the same moment. SET ... NX only
+succeeds if the key does not exist yet, and Redis executes commands one
+at a time, so exactly one claim succeeds. EX 30 releases the claim
+automatically if the vendor's app never confirms.
+
+> SET request:9001:accepted tanker:806 NX EX 30
+OK
+
+> SET request:9001:accepted tanker:902 NX EX 30
+(nil)
+
+> GET request:9001:accepted
+tanker:806
+
+> TTL request:9001:accepted
+30
+
+
+======================================================================
+ 6. Tanker becomes busy
+======================================================================
+MULTI/EXEC applies both changes as one unit: removed from the matching
+set and its status updated. Matching no longer returns it.
+
+> MULTI / ZREM geo:tankers:available 806 / HSET tanker:806 status busy / EXEC
+OK
+QUEUED
+QUEUED
+1
+0
+
+> redis-cli --eval match.lua geo:tankers:available , 3.419713 6.433002 3 15000 5
+tanker 902
+LAG-02891TK
+20000 litres
+0.3329 km
+tanker 656
+LAG-02112TK
+15000 litres
+0.3536 km
+tanker 560
+LAG-01791TK
+20000 litres
+0.4408 km
+tanker 62
+LAG-00221TK
+33000 litres
+0.4855 km
+tanker 722
+LAG-02311TK
+20000 litres
+0.5451 km
+
+
+======================================================================
+ 7. Live location updates while driving to the customer
+======================================================================
+Each GPS ping updates the position, the hash and the heartbeat in one
+MULTI/EXEC transaction. GEOADD on an existing member moves it.
+
+Distance before driving: 0.3289 km
+> MULTI / GEOADD geo:tankers 3.421435 6.431904 806 / HSET tanker:806 lat 6.431904 lng 3.421435 / SET tanker:806:alive 1 EX 60 / EXEC
+  Ping 1: 0.2260 km from the customer
+> MULTI / GEOADD geo:tankers 3.420652 6.432403 806 / HSET tanker:806 lat 6.432403 lng 3.420652 / SET tanker:806:alive 1 EX 60 / EXEC
+  Ping 2: 0.1232 km from the customer
+> MULTI / GEOADD geo:tankers 3.419870 6.432902 806 / HSET tanker:806 lat 6.432902 lng 3.419870 / SET tanker:806:alive 1 EX 60 / EXEC
+  Ping 3: 0.0203 km from the customer
+
+======================================================================
+ 8. Heartbeat expiry
+======================================================================
+Tanker 902's app stops reporting. Its heartbeat key was given a 2 second
+lifetime; once it expires, matching skips the tanker even though it is
+still in the available set. No cleanup job is needed for correctness.
+
+> SET tanker:902:alive 1 EX 2
+OK
+
+> TTL tanker:902:alive
+2
+
+(waiting 3 seconds)
+> EXISTS tanker:902:alive
+0
+
+> redis-cli --eval match.lua geo:tankers:available , 3.419713 6.433002 3 15000 5
+tanker 656
+LAG-02112TK
+15000 litres
+0.3536 km
+tanker 560
+LAG-01791TK
+20000 litres
+0.4408 km
+tanker 62
+LAG-00221TK
+33000 litres
+0.4855 km
+tanker 722
+LAG-02311TK
+20000 litres
+0.5451 km
+tanker 350
+LAG-01152TK
+20000 litres
+0.5553 km
+
+
+======================================================================
+ 9. Throughput
+======================================================================
+redis-benchmark runs 20,000 nearest-tanker searches from 50 parallel
+clients.
+
+> redis-benchmark -n 20000 -c 50 -q GEOSEARCH geo:tankers:available FROMLONLAT 3.419713 6.433002 BYRADIUS 3 km ASC WITHDIST COUNT 10
+GEOSEARCH geo:tankers:available FROMLONLAT 3.419713 6.433002 BYRADIUS 3 km ASC WITHDIST COUNT 10: 19860.97 requests per second, p50=2.159 msec
+
