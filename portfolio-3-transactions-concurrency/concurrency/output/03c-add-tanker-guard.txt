@@ -1,0 +1,11 @@
+Tankers currently on more than one live trip (before cleanup):
+ double_booked_tankers | extra_trips 
+-----------------------+-------------
+                    81 |          90
+
+After cleanup:
+ double_booked_tankers 
+-----------------------
+                     0
+
+Index one_live_trip_per_tanker created.

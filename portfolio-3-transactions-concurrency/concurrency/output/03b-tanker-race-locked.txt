@@ -1,0 +1,25 @@
+======================================================================
+ 3b. One tanker accepted for two requests - assign_trip() with FOR UPDATE
+======================================================================
+Setup: tanker 19 offered request 300005 (offer 618963 ) and request 300006 (offer 618964 )
+
+          Driver 1  | 0.131s  BEGIN
+          Driver 1  | 0.138s  OK     assign_trip(offer 618963)
+          Driver 1  | 0.138s  Holding the lock until commit (holding for 3s)
+          Driver 1  | 3.154s  COMMIT
+          Driver 2  | 0.131s  Driver 2 taps accept a moment later (holding for 1s)
+          Driver 2  | 1.137s  BEGIN
+          Driver 2  | 3.167s  FAILED assign_trip(offer 618964) (after being blocked for 2.0s)
+          Driver 2  |            -> Tanker LAG-00073TK is busy, not available
+          Driver 2  | 3.168s  ROLLBACK
+
+Result: live trips on the tanker (more than one means it is double-booked)
+  trip  | request | driver |  status  
+--------+---------+--------+----------
+ 293905 |  300005 |     16 | assigned
+
+           verdict            
+------------------------------
+ OK: tanker has one live trip
+
+

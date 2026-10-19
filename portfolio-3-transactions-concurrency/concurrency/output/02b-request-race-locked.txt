@@ -1,0 +1,21 @@
+======================================================================
+ 2b. Two vendors accept the same request - assign_trip() with FOR UPDATE
+======================================================================
+Setup: new request 300002 offered to vendor 5 (offer 618959 ) and vendor 7 (offer 618960 )
+
+          Vendor 1  | 0.089s  BEGIN
+          Vendor 1  | 0.092s  OK     assign_trip(offer 618959)
+          Vendor 1  | 0.093s  Holding the lock until commit (holding for 3s)
+          Vendor 1  | 3.108s  COMMIT
+          Vendor 2  | 0.089s  Vendor 2 taps accept a moment later (holding for 1s)
+          Vendor 2  | 1.096s  BEGIN
+          Vendor 2  | 3.122s  FAILED assign_trip(offer 618960) (after being blocked for 2.0s)
+          Vendor 2  |            -> Request 300002 is already assigned
+          Vendor 2  | 3.122s  ROLLBACK
+
+Result: trips created for the request (expected exactly one)
+  trip  | offer  | tanker |  status  | request_status 
+--------+--------+--------+----------+----------------
+ 293900 | 618959 |     11 | assigned | assigned
+
+

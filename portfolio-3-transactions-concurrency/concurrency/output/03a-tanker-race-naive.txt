@@ -1,0 +1,29 @@
+======================================================================
+ 3a. One tanker accepted for two requests - plain SQL, no locking
+======================================================================
+Setup: tanker 18 offered request 300003 (offer 618961 ) and request 300004 (offer 618962 )
+
+          Driver 1  | 0.120s  BEGIN
+          Driver 1  | 0.120s  Reads tanker 18: status = available
+          Driver 1  | 0.121s  Tanker is available, so the app proceeds (holding for 2s)
+          Driver 1  | 2.141s  OK     INSERT trip + UPDATE tanker to busy
+          Driver 1  | 2.142s  Finishing up before commit (holding for 2s)
+          Driver 1  | 4.153s  COMMIT
+          Driver 2  | 0.120s  Driver 2 taps accept a moment later (holding for 1s)
+          Driver 2  | 1.126s  BEGIN
+          Driver 2  | 1.130s  Reads tanker 18: status = available
+          Driver 2  | 1.131s  Tanker is available, so the app proceeds (holding for 2s)
+          Driver 2  | 4.164s  OK     INSERT trip + UPDATE tanker to busy (after being blocked for 1.0s)
+          Driver 2  | 4.165s  COMMIT
+
+Result: live trips on the tanker (more than one means it is double-booked)
+  trip  | request | driver |  status  
+--------+---------+--------+----------
+ 293902 |  300003 |     16 | assigned
+ 293903 |  300004 |     19 | assigned
+
+                           verdict                            
+--------------------------------------------------------------
+ DOUBLE-BOOKED: one tanker cannot make two deliveries at once
+
+

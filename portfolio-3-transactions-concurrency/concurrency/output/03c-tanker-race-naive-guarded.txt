@@ -1,0 +1,29 @@
+======================================================================
+ 3c. One tanker, two requests - plain SQL again, now with the guard index
+======================================================================
+Setup: tanker 20 offered request 300007 (offer 618965 ) and request 300008 (offer 618966 )
+
+          Driver 1  | 0.109s  BEGIN
+          Driver 1  | 0.110s  Reads tanker 20: status = available
+          Driver 1  | 0.111s  Tanker is available, so the app proceeds (holding for 2s)
+          Driver 1  | 2.130s  OK     INSERT trip + UPDATE tanker to busy
+          Driver 1  | 2.131s  Finishing up before commit (holding for 2s)
+          Driver 1  | 4.141s  COMMIT
+          Driver 2  | 0.110s  Driver 2 taps accept a moment later (holding for 1s)
+          Driver 2  | 1.117s  BEGIN
+          Driver 2  | 1.120s  Reads tanker 20: status = available
+          Driver 2  | 1.121s  Tanker is available, so the app proceeds (holding for 2s)
+          Driver 2  | 4.151s  FAILED INSERT trip + UPDATE tanker to busy (after being blocked for 1.0s)
+          Driver 2  |            -> duplicate key value violates unique constraint "one_live_trip_per_tanker"
+          Driver 2  | 4.152s  COMMIT
+
+Result: live trips on the tanker (more than one means it is double-booked)
+  trip  | request | driver |  status  
+--------+---------+--------+----------
+ 293907 |  300007 |     16 | assigned
+
+           verdict            
+------------------------------
+ OK: tanker has one live trip
+
+

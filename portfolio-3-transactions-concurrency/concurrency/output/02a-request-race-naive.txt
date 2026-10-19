@@ -1,0 +1,25 @@
+======================================================================
+ 2a. Two vendors accept the same request - plain SQL, no locking
+======================================================================
+Setup: new request 300001 offered to vendor 4 (offer 618957 ) and vendor 5 (offer 618958 )
+
+          Vendor 1  | 0.102s  BEGIN
+          Vendor 1  | 0.103s  Reads request 300001: status = pending
+          Vendor 1  | 0.104s  Status is pending, so the app proceeds (holding for 2s)
+          Vendor 1  | 2.124s  OK     INSERT trip + UPDATE request to assigned
+          Vendor 1  | 2.124s  Finishing up before commit (holding for 2s)
+          Vendor 1  | 4.135s  COMMIT
+          Vendor 2  | 0.103s  Vendor 2 taps accept a moment later (holding for 1s)
+          Vendor 2  | 1.109s  BEGIN
+          Vendor 2  | 1.112s  Reads request 300001: status = pending
+          Vendor 2  | 1.112s  Status is pending, so the app proceeds (holding for 2s)
+          Vendor 2  | 4.175s  FAILED INSERT trip + UPDATE request to assigned (after being blocked for 1.1s)
+          Vendor 2  |            -> duplicate key value violates unique constraint "one_live_trip_per_request"
+          Vendor 2  | 4.176s  COMMIT
+
+Result: trips created for the request (expected exactly one)
+  trip  | offer  | tanker |  status  | request_status 
+--------+--------+--------+----------+----------------
+ 293897 | 618957 |      7 | assigned | assigned
+
+
