@@ -1,0 +1,123 @@
+
+======================================================================
+ TEST 1: COMMIT - completing a delivery
+ complete_trip() updates 4 tables and inserts into 3. On COMMIT,
+ all of it becomes permanent together.
+======================================================================
+Before:
+ trip | trip_status | request_status | tanker_status | payments | earnings 
+------+-------------+----------------+---------------+----------+----------
+ 1154 | arrived     | assigned       | busy          |        0 |        0
+
+psql:/portfolio/portfolio-3-transactions-concurrency/01-commit-rollback.sql:42: NOTICE:  Step 1 done: trip 1154 marked completed
+psql:/portfolio/portfolio-3-transactions-concurrency/01-commit-rollback.sql:42: NOTICE:  Step 2 done: request 1166 marked completed
+psql:/portfolio/portfolio-3-transactions-concurrency/01-commit-rollback.sql:42: NOTICE:  Step 3 done: payment 274185 recorded (PSTK-DEMO-1154)
+psql:/portfolio/portfolio-3-transactions-concurrency/01-commit-rollback.sql:42: NOTICE:  Step 4 done: vendor 348 credited
+psql:/portfolio/portfolio-3-transactions-concurrency/01-commit-rollback.sql:42: NOTICE:  Step 5 done: tanker released
+ payment_id 
+------------
+     274185
+
+After COMMIT: trip and request completed, 1 payment, 1 earning, tanker available
+ trip | trip_status | request_status | tanker_status | payments | earnings 
+------+-------------+----------------+---------------+----------+----------
+ 1154 | completed   | completed      | available     |        1 |        1
+
+
+======================================================================
+ TEST 2: AUTOMATIC ROLLBACK - payment fails halfway through
+ The gateway sends a reference that was already used in Test 1.
+ Steps 1 and 2 succeed, step 3 fails on the unique constraint.
+ Expected: the whole transaction is undone, including steps 1 and 2.
+======================================================================
+Before:
+ trip | trip_status | request_status | tanker_status | payments | earnings 
+------+-------------+----------------+---------------+----------+----------
+ 1940 | arrived     | assigned       | busy          |        0 |        0
+
+psql:/portfolio/portfolio-3-transactions-concurrency/01-commit-rollback.sql:60: NOTICE:  Step 1 done: trip 1940 marked completed
+psql:/portfolio/portfolio-3-transactions-concurrency/01-commit-rollback.sql:60: NOTICE:  Step 2 done: request 1970 marked completed
+psql:/portfolio/portfolio-3-transactions-concurrency/01-commit-rollback.sql:60: ERROR:  duplicate key value violates unique constraint "payment_gateway_reference_key"
+
+After an error, PostgreSQL refuses every further statement in the
+transaction until it is ended. Even a trivial query fails:
+psql:/portfolio/portfolio-3-transactions-concurrency/01-commit-rollback.sql:65: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+
+After ROLLBACK: trip still arrived, request still assigned, no payment.
+Steps 1 and 2 ran, but nothing they changed was kept:
+ trip | trip_status | request_status | tanker_status | payments | earnings 
+------+-------------+----------------+---------------+----------+----------
+ 1940 | arrived     | assigned       | busy          |        0 |        0
+
+
+======================================================================
+ TEST 3: EXPLICIT ROLLBACK - abandoning a change on purpose
+ A finance officer starts a refund on the Test 1 payment, then
+ realises it is the wrong customer and cancels.
+======================================================================
+Inside the transaction, the refund is visible to this session:
+ refunds_for_payment 
+---------------------
+                   1
+
+After ROLLBACK, it never happened:
+ refunds_for_payment 
+---------------------
+                   0
+
+
+======================================================================
+ TEST 4: SAVEPOINT - undoing part of a transaction
+ A delivery is completed and the customer rates it in the same
+ transaction. The app sends an invalid score (7). Only the rating
+ is rolled back to the savepoint; the delivery is kept, a corrected
+ rating is saved, and the transaction commits.
+======================================================================
+Before:
+ trip | trip_status | request_status | tanker_status | payments | earnings 
+------+-------------+----------------+---------------+----------+----------
+ 2137 | arrived     | assigned       | busy          |        0 |        0
+
+psql:/portfolio/portfolio-3-transactions-concurrency/01-commit-rollback.sql:106: NOTICE:  Step 1 done: trip 2137 marked completed
+psql:/portfolio/portfolio-3-transactions-concurrency/01-commit-rollback.sql:106: NOTICE:  Step 2 done: request 2170 marked completed
+psql:/portfolio/portfolio-3-transactions-concurrency/01-commit-rollback.sql:106: NOTICE:  Step 3 done: payment 274187 recorded (TRF-DEMO-2137)
+psql:/portfolio/portfolio-3-transactions-concurrency/01-commit-rollback.sql:106: NOTICE:  Step 4 done: vendor 261 credited
+psql:/portfolio/portfolio-3-transactions-concurrency/01-commit-rollback.sql:106: NOTICE:  Step 5 done: tanker released
+ payment_id 
+------------
+     274187
+
+psql:/portfolio/portfolio-3-transactions-concurrency/01-commit-rollback.sql:109: ERROR:  new row for relation "rating" violates check constraint "chk_rating_score_range"
+Rolled back to the savepoint. The delivery steps above are still pending commit.
+After COMMIT: delivery completed and the corrected rating saved
+ trip | trip_status | request_status | tanker_status | payments | earnings 
+------+-------------+----------------+---------------+----------+----------
+ 2137 | completed   | completed      | available     |        1 |        1
+
+ trip_id | score |   comment    
+---------+-------+--------------
+    2137 |     4 | Good service
+
+
+======================================================================
+ TEST 5: BUSINESS RULE ENFORCED IN A TRANSACTION
+ Portfolio 1 noted that no foreign key can ensure a trip's driver
+ works for the vendor that owns the tanker. assign_trip() enforces it.
+======================================================================
+
+Attempt 1: driver from a different vendor. Expected: refused.
+psql:/portfolio/portfolio-3-transactions-concurrency/01-commit-rollback.sql:141: ERROR:  Driver 1 does not work for the vendor that owns tanker LAG-02161TK
+
+Attempt 2: the vendor's own driver. Expected: trip created.
+ trip_id 
+---------
+  293895
+
+ request | request_status |  trip  | trip_status | plate_number | tanker_status 
+---------+----------------+--------+-------------+--------------+---------------
+     328 | assigned       | 293895 | assigned    | LAG-02161TK  | busy
+
+
+======================================================================
+ END OF DEMO 1
+======================================================================
