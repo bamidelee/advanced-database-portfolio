@@ -1,0 +1,64 @@
+
+======================================================================
+ 0. Fresh start
+======================================================================
+Removing any previous primary/replica pair and building a new one. The
+replica clones the primary with pg_basebackup, then streams its WAL.
+
+ Container aquaflow-pg-primary Waiting 
+ Container aquaflow-pg-primary Healthy 
+ Container aquaflow-pg-replica Healthy 
+
+======================================================================
+ 1. Replication topology
+======================================================================
+The primary lists its connected replicas; the replica reports that it is
+in recovery mode, continuously replaying the primary's write-ahead log.
+
+[primary]> SELECT application_name, client_addr, state, sync_state FROM pg_stat_replication;
+ application_name | client_addr |   state   | sync_state 
+------------------+-------------+-----------+------------
+ replica1         | 172.20.0.3  | streaming | async
+(1 row)
+
+[replica]> SELECT pg_is_in_recovery() AS is_replica, status, sender_host FROM pg_stat_wal_receiver;
+ is_replica |  status   | sender_host 
+------------+-----------+-------------
+ t          | streaming | pg-primary
+(1 row)
+
+
+======================================================================
+ 2. Replication lag during a bulk load
+======================================================================
+The AquaFlow schema and the Portfolio 2 seed data (about 400 MB) are
+loaded on the primary only. Every 3 seconds, the primary reports how far
+the replica's replay is behind its current WAL position.
+
+Schema created on the primary. Starting seed.sql ...
+time       replica_behind     replay_lag       replica_rows_visible
+10:42:19   0 bytes            00:00:00.006     300000
+10:44:02   0 bytes            00:00:00         300000
+
+Seed finished and the replica has caught up. Row counts on each server:
+[primary]> SELECT (SELECT count(*) FROM delivery_request) AS requests, (SELECT count(*) FROM trip_status_history) AS status_history;
+ requests | status_history 
+----------+----------------
+   300000 |        1155345
+(1 row)
+
+[replica]> SELECT (SELECT count(*) FROM delivery_request) AS requests, (SELECT count(*) FROM trip_status_history) AS status_history;
+ requests | status_history 
+----------+----------------
+   300000 |        1155345
+(1 row)
+
+
+======================================================================
+ 3. The replica is read-only
+======================================================================
+A hot standby accepts queries but refuses every write. All writes must go
+to the primary.
+
+[replica]> INSERT INTO service_area (name) VALUES ('Lekki');
+ERROR:  cannot execute INSERT in a read-only transaction

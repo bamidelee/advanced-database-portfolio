@@ -1,0 +1,100 @@
+# =====================================================================
+# AquaFlow - Distributed database stack (Portfolio 5)
+#
+# Separate from the main stack in the repository root, so replication
+# and failover experiments never touch the main databases.
+#
+#   PostgreSQL: one primary and one streaming replica
+#   MongoDB:    a three-member replica set (rs0)
+#
+# Start:  docker compose -f portfolio-5-distributed-cloud/docker-compose.yml up -d --wait
+# Remove: docker compose -f portfolio-5-distributed-cloud/docker-compose.yml down -v
+# =====================================================================
+name: aquaflow-distributed
+
+services:
+  pg-primary:
+    image: postgres:16
+    container_name: aquaflow-pg-primary
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: aquaflow
+    command:
+      - postgres
+      - -c
+      - wal_level=replica        # write enough WAL for a replica to replay
+      - -c
+      - max_wal_senders=10       # allow replicas to stream WAL
+      - -c
+      - cluster_name=primary
+    ports:
+      - "5440:5432"
+    volumes:
+      - primary_data:/var/lib/postgresql/data
+      - ./postgres/init-primary.sh:/docker-entrypoint-initdb.d/init-primary.sh
+      - ../:/portfolio
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d aquaflow"]
+      interval: 2s
+      retries: 30
+
+  pg-replica:
+    image: postgres:16
+    container_name: aquaflow-pg-replica
+    user: postgres
+    environment:
+      PGPASSWORD: replicator_pw
+    depends_on:
+      pg-primary:
+        condition: service_healthy
+    # On first start, clone the primary with pg_basebackup. -R writes the
+    # connection settings that make this server a standby that streams
+    # WAL from the primary. cluster_name becomes its replication name.
+    command:
+      - bash
+      - -c
+      - |
+        if [ ! -s /var/lib/postgresql/data/PG_VERSION ]; then
+          until pg_basebackup -h pg-primary -U replicator -D /var/lib/postgresql/data -R -X stream; do
+            echo "waiting for primary"; sleep 2
+          done
+          chmod 0700 /var/lib/postgresql/data
+        fi
+        exec postgres -c hot_standby=on -c cluster_name=replica1
+    ports:
+      - "5441:5432"
+    volumes:
+      - replica_data:/var/lib/postgresql/data
+      - ../:/portfolio
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      retries: 60
+
+  mongo1:
+    image: mongo:7.0
+    container_name: aquaflow-mongo1
+    hostname: mongo1
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    volumes:
+      - ../:/portfolio
+
+  mongo2:
+    image: mongo:7.0
+    container_name: aquaflow-mongo2
+    hostname: mongo2
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    volumes:
+      - ../:/portfolio
+
+  mongo3:
+    image: mongo:7.0
+    container_name: aquaflow-mongo3
+    hostname: mongo3
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    volumes:
+      - ../:/portfolio
+
+volumes:
+  primary_data:
+  replica_data:

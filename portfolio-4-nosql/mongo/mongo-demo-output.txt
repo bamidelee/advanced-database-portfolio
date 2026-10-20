@@ -1,0 +1,302 @@
+======================================================================
+ Setup: collections, validator, indexes, time-series collection
+======================================================================
+Collections created: deliveries, system.buckets.tanker_positions, system.views, tanker_positions
+
+======================================================================
+ Import: PostgreSQL -> JSON -> MongoDB
+======================================================================
+Deliveries from the last 60 days:
+  100239 document(s) imported successfully. 3 document(s) failed to import.
+  Rejected by the $jsonSchema validator: 3
+GPS routes for trips completed in the last 7 days:
+  98450 document(s) imported successfully. 0 document(s) failed to import.
+
+======================================================================
+ 1. What was loaded
+======================================================================
+{
+  deliveries: 100239,
+  average_delivery_document_bytes: 1071,
+  deliveries_on_disk_mb: 0,
+  gps_points: 98450,
+  gps_buckets: 11186,
+  gps_on_disk_mb: 1.9,
+  gps_bytes_per_point_on_disk: 20
+}
+Each bucket holds the GPS points from one tanker over a time window,
+stored compressed. That is why there are far fewer buckets than points,
+and why each point costs only a few bytes on disk.
+
+======================================================================
+ 2. Tracking screen: one read returns the whole delivery
+======================================================================
+In PostgreSQL this screen joins delivery_request, trip, trip_status_history,
+tanker, vendor and driver (Portfolio 2, Q2). Here every attempt and its
+timeline are embedded, so it is a single lookup by _id.
+
+{
+  _id: 2,
+  address: {
+    area: 'Obalende'
+  },
+  status: 'completed',
+  attempts: [
+    {
+      tanker: {
+        plate: 'LAG-03694TK'
+      },
+      status: 'failed',
+      failure_reason: 'Fill point ran out of water',
+      timeline: [
+        {
+          status: 'assigned',
+          at: ISODate('2026-09-25T05:13:00.000Z')
+        },
+        {
+          status: 'en_route',
+          at: ISODate('2026-09-25T05:21:00.000Z')
+        },
+        {
+          status: 'failed',
+          at: ISODate('2026-09-25T06:42:00.000Z')
+        }
+      ]
+    },
+    {
+      tanker: {
+        plate: 'LAG-03695TK'
+      },
+      status: 'completed',
+      timeline: [
+        {
+          status: 'assigned',
+          at: ISODate('2026-09-25T07:20:00.000Z')
+        },
+        {
+          status: 'en_route',
+          at: ISODate('2026-09-25T07:29:00.000Z')
+        },
+        {
+          status: 'arrived',
+          at: ISODate('2026-09-25T09:21:00.000Z')
+        },
+        {
+          status: 'completed',
+          at: ISODate('2026-09-25T09:32:00.000Z')
+        }
+      ]
+    }
+  ]
+}
+{
+  plan: 'IDHACK',
+  documents_examined: 1,
+  index_keys_examined: 1,
+  returned: 1,
+  time_ms: 0
+}
+
+======================================================================
+ 3. Customer history: before and after an index
+======================================================================
+A customer's 20 most recent deliveries, newest first.
+
+Before (customer 23331):
+{
+  plan: 'PROJECTION_SIMPLE <- SORT <- COLLSCAN',
+  documents_examined: 100239,
+  index_keys_examined: 0,
+  returned: 10,
+  time_ms: 98
+}
+After creating index { 'customer.id': 1, created_at: -1 }:
+{
+  plan: 'LIMIT <- PROJECTION_SIMPLE <- FETCH <- IXSCAN (customer_history)',
+  documents_examined: 10,
+  index_keys_examined: 10,
+  returned: 10,
+  time_ms: 2
+}
+
+======================================================================
+ 4. Driver reports arrival: an atomic update inside one document
+======================================================================
+The positional operator $ targets the attempt matching trip_id. The status
+change and the new timeline entry are applied together: MongoDB guarantees
+that all changes to a single document are atomic.
+
+{
+  delivery: 71385,
+  trip: 69831,
+  matched: 1,
+  modified: 1
+}
+[
+  {
+    status: 'arrived',
+    timeline: [
+      {
+        status: 'assigned',
+        at: ISODate('2026-10-18T09:13:41.073Z')
+      },
+      {
+        status: 'en_route',
+        at: ISODate('2026-10-18T09:18:41.073Z')
+      },
+      {
+        status: 'arrived',
+        at: ISODate('2026-10-20T10:00:23.330Z')
+      }
+    ]
+  }
+]
+
+======================================================================
+ 5. Flexible schema: optional data only some deliveries have
+======================================================================
+Some vendors test water quality on delivery. In PostgreSQL this needs a new
+table or nullable columns and a migration. Here the reading is simply added
+to the deliveries that have one.
+
+{
+  water_quality: {
+    tds_ppm: 180,
+    chloride_mg_per_l: 95,
+    ph: 7.2,
+    tested_at: ISODate('2026-10-20T10:00:23.344Z')
+  }
+}
+{
+  deliveries_with_water_test: 1,
+  deliveries_with_access_notes: 25320,
+  deliveries_with_refunds: 1344
+}
+
+======================================================================
+ 6. Validation: the flexible schema still has rules
+======================================================================
+The $jsonSchema validator rejects a delivery with a negative volume and
+no location, even though MongoDB has no fixed table structure.
+
+Rejected: Document failed validation
+  - address: "required"
+  - volume_litres: "comparison failed"
+
+======================================================================
+ 7. Aggregation: why trips fail
+======================================================================
+$unwind turns each attempt into its own record, then failed ones are grouped by reason.
+
+   932  Gate access denied at estate
+   918  Tanker broke down
+   912  Driver unavailable
+   910  Fill point ran out of water
+   908  Gridlock on Third Mainland Bridge
+   906  Customer unreachable on arrival
+   888  Road blocked by flooding
+    90  Data cleanup: tanker was double-booked
+
+======================================================================
+ 8. Aggregation: delivery performance by area
+======================================================================
+Average minutes from assignment to completion, and average rating.
+
+{
+  _id: 'Ikoyi',
+  deliveries: 15252,
+  avg_minutes: 109,
+  avg_rating: 4.17
+}
+{
+  _id: 'Marina',
+  deliveries: 15222,
+  avg_minutes: 109,
+  avg_rating: 4.14
+}
+{
+  _id: 'Victoria Island',
+  deliveries: 15219,
+  avg_minutes: 109,
+  avg_rating: 4.14
+}
+{
+  _id: 'Lagos Island',
+  deliveries: 15045,
+  avg_minutes: 110,
+  avg_rating: 4.15
+}
+{
+  _id: 'Onikan',
+  deliveries: 14986,
+  avg_minutes: 110,
+  avg_rating: 4.11
+}
+{
+  _id: 'Obalende',
+  deliveries: 14860,
+  avg_minutes: 110,
+  avg_rating: 4.15
+}
+
+======================================================================
+ 9. Geospatial: demand hotspots
+======================================================================
+Deliveries within 500 metres of the Adeola Odeku / Ahmadu Bello junction,
+Victoria Island, grouped by street. Uses the 2dsphere index.
+
+{
+  deliveries: 749,
+  street: 'Ahmadu Bello Way',
+  nearest_m: 25
+}
+{
+  deliveries: 735,
+  street: 'Ajose Adeogun Street',
+  nearest_m: 9
+}
+{
+  deliveries: 696,
+  street: 'Saka Tinubu Street',
+  nearest_m: 36
+}
+{
+  deliveries: 695,
+  street: 'Adeola Odeku Street',
+  nearest_m: 14
+}
+{
+  deliveries: 671,
+  street: 'Ozumba Mbadiwe Avenue',
+  nearest_m: 11
+}
+{
+  deliveries: 632,
+  street: 'Akin Adesola Street',
+  nearest_m: 36
+}
+
+======================================================================
+ 10. Time series: a tanker's route for one trip
+======================================================================
+GPS breadcrumbs from assignment to arrival, read in time order.
+
+10:23:25  6.45640, 3.39699    0 km/h
+10:39:58  6.45585, 3.39738   15 km/h
+10:56:32  6.45529, 3.39776   22 km/h
+11:13:05  6.45474, 3.39814   29 km/h
+11:29:38  6.45419, 3.39852   11 km/h
+11:46:12  6.45364, 3.39891   18 km/h
+12:02:45  6.45308, 3.39929   25 km/h
+12:19:18  6.45253, 3.39967   32 km/h
+12:35:52  6.45198, 3.40005   14 km/h
+12:52:25  6.45142, 3.40044    0 km/h
+
+======================================================================
+ 11. The cost of embedding
+======================================================================
+Vendor names are copied into every delivery they served. Renaming a vendor
+is one row in PostgreSQL but many documents here. (For history this copy
+is arguably correct: it records who the vendor was at the time.)
+
+TypeError: Cannot read properties of undefined (reading 'tanker')
