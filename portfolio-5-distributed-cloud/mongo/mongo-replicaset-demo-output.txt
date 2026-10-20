@@ -1,0 +1,104 @@
+
+======================================================================
+ 0. Fresh start
+======================================================================
+Three mongod members are started and joined into replica set rs0.
+mongo1 is given priority 2 so it is the preferred primary.
+
+ Container aquaflow-mongo2 Started 
+  rs.initiate ok: 1
+  Primary elected after 10600 ms: mongo1:27017
+
+======================================================================
+ 1. Topology
+======================================================================
+One PRIMARY accepts writes; the SECONDARY members copy its operation log
+(oplog) and apply it. The default write concern is majority: a write is
+only acknowledged once a majority of members (2 of 3) have it.
+
+  mongo1:27017      PRIMARY                   up
+  mongo2:27017      SECONDARY                 up
+  mongo3:27017      SECONDARY                 up
+  Default write concern: {"w":"majority","wtimeout":0}
+
+======================================================================
+ 2. Replicated writes
+======================================================================
+Two delivery events are written through the replica set: one acknowledged
+by a majority, one by all three members. Each member is then read
+directly, and all three hold both documents.
+
+  w: majority -> acknowledged: true
+  w: 3       -> acknowledged: true
+  mongo1 holds 2 events
+  mongo2 holds 2 events
+  mongo3 holds 2 events
+
+======================================================================
+ 3. Automatic failover
+======================================================================
+The primary's server fails without warning. The remaining members stop
+receiving its heartbeats (sent every 2 seconds); after 10 seconds without
+one (electionTimeoutMillis) they hold an election, and one becomes
+primary. No operator acts.
+
+  Killing the primary, mongo1 ...
+ Container aquaflow-mongo1 Killed 
+  New primary elected after 8980 ms: mongo2:27017
+  mongo1:27017      (not reachable/healthy)   DOWN
+  mongo2:27017      PRIMARY                   up
+  mongo3:27017      SECONDARY                 up
+
+  The application keeps writing through the same connection string;
+  the driver finds the new primary itself:
+  insert acknowledged: true
+
+======================================================================
+ 4. Waiting for a member that is down
+======================================================================
+With 2 of 3 members up, majority writes still succeed. A write requiring
+all 3 members times out, but it is NOT undone: it was applied on the two
+running members, and will reach the third when it returns. A write
+concern controls when the client is told about a write, not whether the
+write happens.
+
+  w: 3 -> WriteConcernFailed: waiting for replication timed out
+  mongo1 is down
+  mongo2 holds the refund event: true
+  mongo3 holds the refund event: true
+
+======================================================================
+ 5. Losing the majority
+======================================================================
+A second member fails. One member out of three is not a majority, so it
+cannot know whether the others have elected a primary of their own on
+the far side of a network split. To avoid two primaries accepting
+conflicting writes (split brain), it refuses to become primary. Writes
+stop; reads that accept possibly stale data still work.
+
+  Killing mongo2. Only mongo3 remains.
+ Container aquaflow-mongo2 Killed 
+  mongo1:27017      (not reachable/healthy)   DOWN
+  mongo2:27017      (not reachable/healthy)   DOWN
+  mongo3:27017      SECONDARY                 up
+
+  write -> refused after 5.0s: MongoServerSelectionError (no primary could be found; serverSelectionTimeoutMS is 5000)
+  read with readPreference secondaryPreferred -> 4 events
+
+======================================================================
+ 6. Recovery
+======================================================================
+Both failed members return. They rejoin, copy the operations they missed
+from the oplog, and an election restores a primary. mongo1 has the
+highest priority, so once it has caught up it takes over as primary.
+
+ Container aquaflow-mongo1 Started 
+ Container aquaflow-mongo2 Started 
+  Primary available again after 3055 ms: mongo3:27017
+  mongo1:27017      PRIMARY                   up
+  mongo2:27017      SECONDARY                 up
+  mongo3:27017      SECONDARY                 up
+
+  mongo1 holds 4 events
+  mongo2 holds 4 events
+  mongo3 holds 4 events
