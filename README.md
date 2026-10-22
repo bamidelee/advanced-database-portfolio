@@ -1,6 +1,6 @@
 # MIT 8103 Advanced Database Systems Portfolio
 
-**Student:** Ibrahim Olujide
+**Student:** Ibrahim Olubamidele Olujide
 **Student ID:** 301910809
 **Programme:** Master of Information Technology
 **Session:** 2026/2027 First Semester (September cohort)
